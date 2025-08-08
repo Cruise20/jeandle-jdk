@@ -76,7 +76,7 @@ jobs:
           - debug-level: debug
             flags: --with-debug-level=fastdebug
             suffix: -debug
-            llvm-flags: '-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g"'
+            llvm-flags: '-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3"'
           - debug-level: release
             llvm-flags: '-DCMAKE_BUILD_TYPE=Release'
 
