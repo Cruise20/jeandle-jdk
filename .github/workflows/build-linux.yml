@@ -76,6 +76,9 @@ jobs:
           - debug-level: debug
             flags: --with-debug-level=fastdebug
             suffix: -debug
+            llvm-flags: '-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g"'
+          - debug-level: release
+            llvm-flags: '-DCMAKE_BUILD_TYPE=Release'
 
     steps:
       - name: 'Checkout the JDK source'
@@ -149,24 +152,14 @@ jobs:
           mkdir build
           pushd build
 
-          EXTRA_LLVM_FLAGS=""
-          if [ "${{ matrix.suffix }}" = "release" ]; then
-            EXTRA_LLVM_FLAGS="-DCMAKE_BUILD_TYPE=Release"
-          elif [ "${{ matrix.suffix }}" = "debug" ]; then
-            EXTRA_LLVM_FLAGS='-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g"'
-          else
-            echo "Invalid debug level!"
-            exit -1
-          fi
-
-          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${EXTRA_LLVM_FLAGS} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm_${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
+          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${{ matrix.llvm-flags }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
           cmake --build . --target install
           popd
           popd # enter to root dir of jeandle
           # delete llvm repo to spare space for building jdk.
           rm -rf jeandle-llvm/
           pusd $GITHUB_WORKSPACE
-          tar czf install_llvm_${{ matrix.suffix }}.tar.gz install_llvm_${{ matrix.suffix }}/
+          tar czf install_llvm${{ matrix.suffix }}.tar.gz install_llvm${{ matrix.suffix }}/
 
       - name: 'Configure JDK'
         run: >
@@ -179,7 +172,7 @@ jobs:
           --with-gtest=${{ steps.gtest.outputs.path }}
           --with-zlib=system
           --with-jmod-compress=zip-1
-          --with-jeandle-llvm=$GITHUB_WORKSPACE/install_llvm_${{ matrix.suffix }}
+          --with-jeandle-llvm=$GITHUB_WORKSPACE/install_llvm${{ matrix.suffix }}
           ${{ inputs.extra-conf-options }} ${{ inputs.configure-arguments }} || (
           echo "Dumping config.log:" &&
           cat config.log &&
