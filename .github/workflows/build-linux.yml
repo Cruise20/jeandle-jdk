@@ -158,7 +158,7 @@ jobs:
           popd # enter to root dir of jeandle
           # delete llvm repo to spare space for building jdk.
           rm -rf jeandle-llvm/
-          pusd $GITHUB_WORKSPACE
+          pushd $GITHUB_WORKSPACE
           tar czf install_llvm${{ matrix.suffix }}.tar.gz install_llvm${{ matrix.suffix }}/
 
       - name: 'Configure JDK'
