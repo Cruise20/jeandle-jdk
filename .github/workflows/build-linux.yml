@@ -42,7 +42,7 @@ on:
       debug-levels:
         required: false
         type: string
-        default: '[ "release" ]'
+        default: '[ "debug", "release" ]'
       gcc-major-version:
         required: true
         type: string
@@ -72,6 +72,10 @@ jobs:
       fail-fast: false
       matrix:
         debug-level: ${{ fromJSON(inputs.debug-levels) }}
+        include:
+          - debug-level: debug
+            flags: --with-debug-level=fastdebug
+            suffix: -debug
 
     steps:
       - name: 'Checkout the JDK source'
@@ -131,21 +135,34 @@ jobs:
 
           # clone llvm
           pushd ../
+          echo "Cloning jeandle-llvm: git clone -b ${TARGET_BRANCH} --depth=1 ${TARGET_REPO} jeandle-llvm..."
           git clone -b ${TARGET_BRANCH} --depth=1 ${TARGET_REPO} jeandle-llvm
           LLVM_DIR=`pwd`/jeandle-llvm
 
           #build llvm
           pushd ${LLVM_DIR}
+
           mkdir build
           pushd build
-          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 -DCMAKE_BUILD_TYPE="Release" -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
+
+          EXTRA_LLVM_FLAGS=""
+          if [ "${{ matrix.suffix }}" = "release" ]; then
+            EXTRA_LLVM_FLAGS="-DCMAKE_BUILD_TYPE=Release"
+          elif [ "${{ matrix.suffix }}" = "debug" ]; then
+            EXTRA_LLVM_FLAGS='-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3 -g"'
+          else
+            echo "Invalid debug level!"
+            exit -1
+          fi
+
+          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${EXTRA_LLVM_FLAGS} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm_${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
           cmake --build . --target install
           popd
           popd # enter to root dir of jeandle
           # delete llvm repo to spare space for building jdk.
           rm -rf jeandle-llvm/
           pusd $GITHUB_WORKSPACE
-          tar czf install_llvm.tar.gz install_llvm/
+          tar czf install_llvm_${{ matrix.suffix }}.tar.gz install_llvm_${{ matrix.suffix }}/
 
       - name: 'Configure JDK'
         run: >
@@ -158,7 +175,7 @@ jobs:
           --with-gtest=${{ steps.gtest.outputs.path }}
           --with-zlib=system
           --with-jmod-compress=zip-1
-          --with-jeandle-llvm=$GITHUB_WORKSPACE/install_llvm
+          --with-jeandle-llvm=$GITHUB_WORKSPACE/install_llvm_${{ matrix.suffix }}
           ${{ inputs.extra-conf-options }} ${{ inputs.configure-arguments }} || (
           echo "Dumping config.log:" &&
           cat config.log &&
