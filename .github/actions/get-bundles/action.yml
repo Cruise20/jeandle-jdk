@@ -64,6 +64,11 @@ runs:
 
     - name: 'Unpack bundles'
       run: |
+
+
+        # for fast debug
+        ls bundles/
+
         if [[ -e bundles/jdk-${{ inputs.platform }}${{ inputs.debug-suffix }}.zip ]]; then
           echo 'Unpacking jdk bundle...'
           mkdir -p bundles/jdk
@@ -87,9 +92,6 @@ runs:
           mkdir -p bundles/tests
           tar -xf bundles/tests-${{ inputs.platform }}${{ inputs.debug-suffix }}.tar.gz -C bundles/tests
         fi
-
-        # for fast debug
-        ls bundles/
 
         if [[ -e bundles/install_llvm${{ inputs.debug-suffix }}tar.gz ]]; then
           echo 'Unpacking llvm bundle...'
