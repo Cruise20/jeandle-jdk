@@ -163,6 +163,7 @@ jobs:
 
       - name: 'Configure JDK'
         run: >
+          git log -n 1 &&
           bash configure
           --with-conf-name=${{ inputs.platform }}
           ${{ matrix.flags }}
