@@ -125,6 +125,10 @@ jobs:
     steps:
       - name: 'Checkout the JDK source'
         uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 1
 
       - name: 'Get MSYS2'
         uses: ./.github/actions/get-msys2
