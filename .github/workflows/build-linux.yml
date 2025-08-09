@@ -153,7 +153,7 @@ jobs:
           pushd build
 
           cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${{ matrix.llvm-flags }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
-          cmake --build . --target install
+          cmake --build . --target install -j $[$(nproc)/2]
           popd
           popd # enter to root dir of jeandle
           # delete llvm repo to spare space for building jdk.
