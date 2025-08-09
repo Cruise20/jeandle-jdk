@@ -50,6 +50,12 @@ runs:
 
         # for fast debug
         ls $GITHUB_WORKSPACE/
+        touch tmp1${{ inputs.debug-suffix }}.zip tmp2${{ inputs.debug-suffix }}.zip tmp3${{ inputs.debug-suffix }}.zip  tmp4${{ inputs.debug-suffix }}.zip 
+        jdk_bundle_zip=tmp1${{ inputs.debug-suffix }}.zip
+        jdk_bundle_tar_gz=tmp2${{ inputs.debug-suffix }}.zip
+        symbols_bundle=tmp3${{ inputs.debug-suffix }}.zip
+        tests_bundle=tmp4${{ inputs.debug-suffix }}.zip
+
 
         mkdir bundles
 
