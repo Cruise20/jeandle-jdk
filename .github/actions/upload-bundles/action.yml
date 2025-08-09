@@ -48,6 +48,9 @@ runs:
         tests_bundle="$(ls build/*/bundles/jdk-*_bin-tests${{ inputs.debug-suffix }}.tar.gz 2> /dev/null || true)"
         llvm_bundle_tar_gz="$(ls $GITHUB_WORKSPACE/install_llvm${{ inputs.debug-suffix }}.tar.gz 2> /dev/null || true)"
 
+        # for fast debug
+        ls $GITHUB_WORKSPACE/
+
         mkdir bundles
 
         if [[ "$jdk_bundle_zip" != "" ]]; then

@@ -88,6 +88,9 @@ runs:
           tar -xf bundles/tests-${{ inputs.platform }}${{ inputs.debug-suffix }}.tar.gz -C bundles/tests
         fi
 
+        # for fast debug
+        ls bundles/
+
         if [[ -e bundles/install_llvm${{ inputs.debug-suffix }}tar.gz ]]; then
           echo 'Unpacking llvm bundle...'
           # the export directory must be the same as original install dir of llvm.
