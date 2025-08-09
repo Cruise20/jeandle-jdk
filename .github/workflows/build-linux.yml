@@ -134,7 +134,7 @@ jobs:
             TARGET_REPO="https://github.com/jeandle/jeandle-llvm.git"
           fi
           echo "target repo of llvm: $TARGET_REPO"
-          TARGET_BRANCH=`git log -1 | grep "CO_BRANCH" | awk -F ':| ' '{print $NF}'`
+
           if [ -z "${TARGET_BRANCH}" ]; then
             TARGET_BRANCH="main"
           fi
