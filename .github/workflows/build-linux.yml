@@ -76,7 +76,7 @@ jobs:
           - debug-level: debug
             flags: --with-debug-level=fastdebug
             suffix: -debug
-            llvm-flags: '-DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_FLAGS_RELWITHDEBINFO="-O3"'
+            llvm-flags: '-DCMAKE_BUILD_TYPE=Release -DLLVM_ENABLE_ASSERTIONS=ON'
           - debug-level: release
             llvm-flags: '-DCMAKE_BUILD_TYPE=Release'
 
@@ -152,7 +152,7 @@ jobs:
           mkdir build
           pushd build
 
-          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${{ matrix.llvm-flags }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=On -DLLVM_DYLIB_COMPONENTS=all ../llvm
+          cmake -G "Unix Makefiles" -DLLVM_TARGETS_TO_BUILD=X86 ${{ matrix.llvm-flags }} -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/install_llvm${{ matrix.suffix }}" -DLLVM_BUILD_LLVM_DYLIB=ON -DLLVM_DYLIB_COMPONENTS=all ../llvm
           cmake --build . --target install -j $[$(nproc)/2]
           popd
           popd # enter to root dir of jeandle
