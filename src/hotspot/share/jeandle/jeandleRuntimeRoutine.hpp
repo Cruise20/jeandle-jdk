@@ -83,6 +83,9 @@
                                                                   llvm::PointerType::get(context, llvm::jeandle::AddrSpace::CHeapAddrSpace),    \
                                                                   llvm::PointerType::get(context, llvm::jeandle::AddrSpace::JavaHeapAddrSpace), \
                                                                   llvm::PointerType::get(context, llvm::jeandle::AddrSpace::CHeapAddrSpace))    \
+                                                                                                                                                \
+  def(unimplemented,              llvm::Type::getVoidTy(context), llvm::PointerType::get(context, llvm::jeandle::AddrSpace::CHeapAddrSpace),    \
+                                                                  llvm::PointerType::get(context, llvm::jeandle::AddrSpace::CHeapAddrSpace))    \
 
 #define ALL_JEANDLE_ASSEMBLY_ROUTINES(def) \
   def(exceptional_return)                  \
@@ -230,6 +233,9 @@ class JeandleRuntimeRoutine : public AllStatic {
   static void multianewarray4(Klass* elem_type, int len1, int len2, int len3, int len4, JavaThread* current);
   static void multianewarray5(Klass* elem_type, int len1, int len2, int len3, int len4, int len5, JavaThread* current);
   static void multianewarrayN(Klass* elem_type, arrayOopDesc* dims, JavaThread* current);
+
+  // Unimplemented routine.
+  static void unimplemented(const char* message, JavaThread* current);
 
   // Assembly routine implementations:
 

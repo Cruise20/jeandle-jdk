@@ -1367,7 +1367,21 @@ void JeandleAbstractInterpreter::invoke() {
 
     _ir_builder.CreateCondBr(checkcast, checkcast_pass, checkcast_fail);
 
-    uncommon_trap(Deoptimization::Reason_class_check, Deoptimization::Action_none, checkcast_fail);
+    _ir_builder.SetInsertPoint(checkcast_fail);
+// #ifdef DEBUG
+    // The message string must be a const char arrary, string varibale is not allowed.
+    static const char* message_str = "receiver constraint check failed.";
+    llvm::PointerType* message_type = llvm::PointerType::get(*_context,llvm::jeandle::AddrSpace::CHeapAddrSpace);
+    llvm::Value* message_addr = _ir_builder.getInt64(reinterpret_cast<uintptr_t>(message_str));
+    llvm::Value* message_ptr = _ir_builder.CreateIntToPtr(message_addr, message_type);
+
+    llvm::CallInst* current_thread = call_java_op("jeandle.current_thread", {});
+    llvm::FunctionCallee callee = JeandleRuntimeRoutine::unimplemented_callee(_module);
+    create_call(callee, {message_ptr, current_thread}, llvm::CallingConv::Hotspot_JIT);
+    _ir_builder.CreateUnreachable();
+
+    // #else RELEASE
+    // uncommon_trap (Deoptimization:: Reason_class_check, Deoptimization: :Action_none, checkcast_fail);
 
     _ir_builder.SetInsertPoint(checkcast_pass);
     _block->set_tail_llvm_block(checkcast_pass);

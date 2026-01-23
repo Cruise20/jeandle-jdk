@@ -291,3 +291,7 @@ JRT_ENTRY(void, JeandleRuntimeRoutine::multianewarrayN(Klass* elem_type, arrayOo
   // TODO: deoptimize_caller_frame(current, HAS_PENDING_EXCEPTION);
   current->set_vm_result(obj);
 JRT_END
+
+JRT_ENTRY(void, JeandleRuntimeRoutine::unimplemented(const char* message, JavaThread* current))
+  fatal("Unimplemented Compiled Code: %s", message);
+JRT_END
