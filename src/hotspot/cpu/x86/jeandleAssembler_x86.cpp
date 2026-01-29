@@ -20,6 +20,15 @@
 
 #include "jeandle/__llvmHeadersBegin__.hpp"
 #include "llvm/ExecutionEngine/JITLink/x86_64.h"
+#include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCDisassembler/MCDisassembler.h"
+#include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/TargetRegistry.h"
+#include "llvm/Support/TargetSelect.h"
+#include "llvm/TargetParser/Host.h"
 
 #include "jeandle/jeandleAssembler.hpp"
 #include "jeandle/jeandleCompilation.hpp"
@@ -30,6 +39,92 @@
 #include "runtime/sharedRuntime.hpp"
 
 #define __ _masm->
+
+namespace {
+
+class JeandleInstructionResolver : public JeandleCompilationResourceObj {
+private:
+  address _begin_address;
+  int _total_size;
+  std::vector<int> _inst_offsets;
+
+public:
+  JeandleInstructionResolver(const address begin_addr, int total_size,
+                             const llvm::Triple triple = llvm::Triple("x86_64-unknown-linux-gnu")) :
+                             _begin_address(begin_addr),
+                             _total_size(total_size) {
+    initialize_inst_offsets(triple);
+  }
+
+  // Given a arbitrary address within code section, find the beginning of the next instruction.
+  address lookup_next_instruction(const address current_ptr) {
+    assert(current_ptr >= _begin_address && current_ptr < _begin_address + _total_size, "invalid target address");
+
+    uint32_t current_offset = static_cast<uint32_t>(current_ptr - _begin_address);
+
+    auto it = std::upper_bound(_inst_offsets.begin(), _inst_offsets.end(), current_offset);
+    assert(it != _inst_offsets.begin(), "current_offset must be after the first instruction");
+
+    uint32_t next_offset;
+    if (it == _inst_offsets.end()) {
+        // The next instruction is the last one in the code section.
+        next_offset = static_cast<uint32_t>(_total_size);
+    } else {
+        next_offset = *it;
+    }
+
+    address next_inst_address = _begin_address + next_offset;
+    assert(next_inst_address > current_ptr, "next instruction must be after current position");
+
+    return next_inst_address;
+  }
+
+private:
+
+  void initialize_inst_offsets(const llvm::Triple triple) {
+    // Initialize LLVM components.
+    llvm::InitializeAllTargetInfos();
+    llvm::InitializeAllTargetMCs();
+    llvm::InitializeAllDisassemblers();
+
+    std::string error;
+    const llvm::Target* target = llvm::TargetRegistry::lookupTarget(triple, error);
+    guarantee(target, "Could not get a x86 target: %s", error.c_str());
+
+    // Prepare context for disassembling.
+    std::unique_ptr<llvm::MCRegisterInfo> mri(target->createMCRegInfo(triple));
+    std::unique_ptr<llvm::MCAsmInfo> mai(target->createMCAsmInfo(*mri, triple, llvm::MCTargetOptions()));
+    std::unique_ptr<llvm::MCInstrInfo> mii(target->createMCInstrInfo());
+    std::unique_ptr<llvm::MCSubtargetInfo> sti(target->createMCSubtargetInfo(triple, "", ""));
+    llvm::MCContext ctx(triple, mai.get(), mri.get(), sti.get());
+    std::unique_ptr<llvm::MCDisassembler> disas(target->createMCDisassembler(*sti, ctx));
+
+    // Scan the code section.
+    int current_offset = 0;
+    _inst_offsets.reserve(_total_size / 4); // Estimate the number of instructions.
+
+    while (current_offset < _total_size) {
+      _inst_offsets.push_back(current_offset);
+
+      // Get the size of current instruction.
+      llvm::MCInst inst;
+      uint64_t inst_size = 0;
+      address current_start = _begin_address + current_offset;
+      llvm::ArrayRef<uint8_t> data(current_start, _total_size - current_offset);
+
+      auto status = disas->getInstruction(inst, inst_size, data, reinterpret_cast<uint64_t>(current_start), llvm::nulls());
+
+      if (status == llvm::MCDisassembler::Fail) {
+        // Might be a nop.
+        inst_size = 1;
+      }
+
+      current_offset += static_cast<int>(inst_size);
+    }
+  }
+};
+
+} // anonymous namespace
 
 void JeandleAssembler::emit_static_call_stub(int inst_offset, CallSiteInfo* call) {
   assert(inst_offset >= 0, "invalid call instruction address");
@@ -195,7 +290,15 @@ void JeandleAssembler::emit_section_word_reloc(int operand_offset, LinkKind kind
 
   if (reloc_section == CodeBuffer::SECT_INSTS) {
     address at_address = __ code()->insts_begin() + operand_offset;
-    address reloc_target = target + addend + sizeof(int32_t);
+
+    // Get the gap size from at_address to the next instrcution. Because it is calculate into addend
+    // and we need to recover it to get the correct reloc_target.
+    JeandleInstructionResolver* resolver = new JeandleInstructionResolver(__ code()->insts_begin(),
+                                                                          __ code()->insts_size(),
+                                                                          llvm::Triple(llvm::sys::getProcessTriple()));
+    address next_instrction = resolver->lookup_next_instruction(at_address);
+
+    address reloc_target = target + addend + (next_instrction - at_address);
     RelocationHolder rspec = jeandle_section_word_Relocation::spec(reloc_target, CodeBuffer::SECT_CONSTS);
 
     __ code()->insts()->relocate(at_address, rspec, __ disp32_operand);
