@@ -25,6 +25,7 @@
 /*
  * @test
  * @bug 8269820
+ * @requires os.arch=="amd64" | os.arch=="x86_64"
  * @summary C2 PhaseIdealLoop::do_unroll get wrong opaque node
  *
  * @run main/othervm -Xbatch -XX:-TieredCompilation -XX:+UseJeandleCompiler TestCanonicalLoopEntryOpaqueOrder
