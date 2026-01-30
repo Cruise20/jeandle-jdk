@@ -27,19 +27,19 @@
  * @summary Correcting the gap in relocation target with special addend.
  *  issue: https://github.com/jeandle/jeandle-jdk/issues/326
  *
- * @run main/othervm -Xbatch -Xcomp -XX:-TieredCompilation -XX:+UseJeandleCompiler compiler.jeandle.relocation.TestSpecialAddend
+ * @run main/othervm -Xbatch -Xcomp -XX:-TieredCompilation -XX:+UseJeandleCompiler compiler.jeandle.relocation.TestIregularAddend
  *
  */
 
 /*
  * The method log1p in this case, after being compiled by jeandle on X86_64
- * architecture, will generate a cmpeqsd instruction, which produce a special
+ * architecture, will generate a cmpeqsd instruction, which produce a irregular
  * addend in relocation info, and it will trigger a bug in jeandle reloc.
  */
 
 package compiler.jeandle.relocation;
 
-public class TestSpecialAddend {
+public class TestIregularAddend {
     public static void main(String[] args) {
         for (int i = 0; i < 10000; i++) {
                 Math.log1p((double)i);
