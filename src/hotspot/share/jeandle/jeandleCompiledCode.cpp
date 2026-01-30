@@ -401,7 +401,7 @@ void JeandleCompiledCode::resolve_reloc_info(JeandleAssembler& assembler) {
                                                    -1/* bci */);
         // LLVM doesn't rewrite intrinsic calls to statepoints, so we don't need oopmaps for external calls.
         relocs.push_back(new JeandleCallReloc(inst_end_offset, _env, _method, nullptr /* no oopmap */, call_info));
-      } else if (JeandleAssembler::is_const_reloc(target, edge.getKind())) {
+      } else if (JeandleAssembler::is_section_word_reloc(target, edge.getKind())) {
         // Const relocations.
         address target_addr;
         int reloc_offset;

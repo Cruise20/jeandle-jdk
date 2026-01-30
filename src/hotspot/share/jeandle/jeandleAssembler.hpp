@@ -68,7 +68,7 @@ class JeandleAssembler : public StackObj {
 
   static bool is_external_call_reloc(LinkSymbol& target, LinkKind kind);
 
-  static bool is_const_reloc(LinkSymbol& target, LinkKind kind);
+  static bool is_section_word_reloc(LinkSymbol& target, LinkKind kind);
 
   // Mirrors C2's InteriorEntryAlignment flag.
   int interior_entry_alignment() const;

@@ -90,7 +90,7 @@ bool JeandleAssembler::is_external_call_reloc(LinkSymbol& target, LinkKind kind)
   Unimplemented();
 }
 
-bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
+bool JeandleAssembler::is_section_word_reloc(LinkSymbol& target, LinkKind kind) {
   Unimplemented();
 }
 

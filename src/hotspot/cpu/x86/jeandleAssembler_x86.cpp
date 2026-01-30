@@ -332,7 +332,7 @@ bool JeandleAssembler::is_external_call_reloc(LinkSymbol& target, LinkKind kind)
          kind == LinkKind_x86_64::BranchPCRel32;
 }
 
-bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
+bool JeandleAssembler::is_section_word_reloc(LinkSymbol& target, LinkKind kind) {
   return target.isDefined() && kind == LinkKind_x86_64::Delta32;
 }
 

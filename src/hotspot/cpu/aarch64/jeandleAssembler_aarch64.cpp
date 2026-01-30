@@ -263,7 +263,7 @@ bool JeandleAssembler::is_external_call_reloc(LinkSymbol& target, LinkKind kind)
          kind == LinkKind_aarch64::Branch26PCRel;
 }
 
-bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
+bool JeandleAssembler::is_section_word_reloc(LinkSymbol& target, LinkKind kind) {
   return target.isDefined() &&
          (kind == LinkKind_aarch64::Page21 || kind == LinkKind_aarch64::PageOffset12);
 }
