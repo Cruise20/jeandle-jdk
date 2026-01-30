@@ -42,7 +42,7 @@ package compiler.jeandle.relocation;
 public class TestIregularAddend {
     public static void main(String[] args) {
         for (int i = 0; i < 10000; i++) {
-                Math.log1p((double)i);
+            Math.log1p((double)i);
         }
     }
 }
