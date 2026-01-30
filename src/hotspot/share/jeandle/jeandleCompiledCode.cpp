@@ -460,6 +460,12 @@ void JeandleCompiledCode::resolve_reloc_info(JeandleAssembler& assembler) {
       return lhs->offset() < rhs->offset();
   });
 
+  // Instruction boundary table is only required for variable-length instruction architectures.
+  // For fixed-length instruction architectures, this method is implementation as empty.
+  // It is used to locate the current instruction where the operand offset pointing to, which is
+  // required for calculating the relocation target.
+  assembler.initialize_inst_boundary_table();
+
   // Step 4: Emit jeandle relocs.
   for (JeandleReloc* reloc : relocs) {
     reloc->fixup_offset(_prolog_length);

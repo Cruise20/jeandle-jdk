@@ -267,3 +267,8 @@ bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
   return target.isDefined() &&
          (kind == LinkKind_aarch64::Page21 || kind == LinkKind_aarch64::PageOffset12);
 }
+
+void JeandleAssembler::initialize_inst_boundary_table() {
+  assert(_inst_boundary_table == nullptr, "dont't need boundary table");
+  // Do nothing on fixed-length instruction architecture.
+}

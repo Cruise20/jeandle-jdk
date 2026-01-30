@@ -26,9 +26,11 @@
 #include "jeandle/__hotspotHeadersBegin__.hpp"
 #include "asm/macroAssembler.hpp"
 
+class JeandleBoundaryTable;
+
 class JeandleAssembler : public StackObj {
  public:
-  JeandleAssembler(MacroAssembler* masm) : _masm(masm) {}
+  JeandleAssembler(MacroAssembler* masm) : _masm(masm), _inst_boundary_table(nullptr) {}
 
   void emit_static_call_stub(int inst_offset, CallSiteInfo* call);
 
@@ -71,8 +73,11 @@ class JeandleAssembler : public StackObj {
   // Mirrors C2's InteriorEntryAlignment flag.
   int interior_entry_alignment() const;
 
+  void initialize_inst_boundary_table();
+
  private:
   MacroAssembler* _masm;
+  JeandleBoundaryTable* _inst_boundary_table;
 };
 
 #endif // SHARE_JEANDLE_ASSEMBLER_HPP

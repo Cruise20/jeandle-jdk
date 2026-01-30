@@ -40,16 +40,14 @@
 
 #define __ _masm->
 
-namespace {
-
-class JeandleInstructionResolver : public JeandleCompilationResourceObj {
+class JeandleBoundaryTable : public JeandleCompilationResourceObj {
 private:
   address _begin_address;
   int _total_size;
   std::vector<int> _inst_offsets;
 
 public:
-  JeandleInstructionResolver(const address begin_addr, int total_size,
+  JeandleBoundaryTable(const address begin_addr, int total_size,
                              const llvm::Triple triple = llvm::Triple("x86_64-unknown-linux-gnu")) :
                              _begin_address(begin_addr),
                              _total_size(total_size) {
@@ -57,26 +55,23 @@ public:
   }
 
   // Given a arbitrary address within code section, find the beginning of the next instruction.
-  address lookup_next_instruction(const address current_ptr) {
-    assert(current_ptr >= _begin_address && current_ptr < _begin_address + _total_size, "invalid target address");
-
-    uint32_t current_offset = static_cast<uint32_t>(current_ptr - _begin_address);
+  int lookup_next_offset(const int current_offset) {
+    assert(current_offset >= 0 && current_offset < _total_size, "invalid offset");
 
     auto it = std::upper_bound(_inst_offsets.begin(), _inst_offsets.end(), current_offset);
-    assert(it != _inst_offsets.begin(), "current_offset must be after the first instruction");
+    guarantee(it != _inst_offsets.begin(), "current_offset must be after the first instruction");
 
-    uint32_t next_offset;
+    int next_offset;
     if (it == _inst_offsets.end()) {
         // The next instruction is the last one in the code section.
-        next_offset = static_cast<uint32_t>(_total_size);
+        next_offset = _total_size;
     } else {
         next_offset = *it;
     }
 
-    address next_inst_address = _begin_address + next_offset;
-    assert(next_inst_address > current_ptr, "next instruction must be after current position");
+    assert(next_offset > current_offset, "next instruction must be after current position");
 
-    return next_inst_address;
+    return next_offset;
   }
 
 private:
@@ -123,8 +118,6 @@ private:
     }
   }
 };
-
-} // anonymous namespace
 
 void JeandleAssembler::emit_static_call_stub(int inst_offset, CallSiteInfo* call) {
   assert(inst_offset >= 0, "invalid call instruction address");
@@ -289,18 +282,15 @@ void JeandleAssembler::emit_section_word_reloc(int operand_offset, LinkKind kind
   assert(kind == LinkKind_x86_64::Delta32, "invalid link kind");
 
   if (reloc_section == CodeBuffer::SECT_INSTS) {
-    address at_address = __ code()->insts_begin() + operand_offset;
-
-    // Get the gap size from at_address to the next instrcution. Because it is calculate into addend
+    // Get the gap size from operand_offset to the next instrcution's offset. Because it is calculate into addend
     // and we need to recover it to get the correct reloc_target.
-    JeandleInstructionResolver* resolver = new JeandleInstructionResolver(__ code()->insts_begin(),
-                                                                          __ code()->insts_size(),
-                                                                          llvm::Triple(llvm::sys::getProcessTriple()));
-    address next_instrction = resolver->lookup_next_instruction(at_address);
+    assert(_inst_boundary_table != nullptr, "inst boundary table not initialized");
+    int next_offset = _inst_boundary_table->lookup_next_offset(operand_offset);
+    address reloc_target = target + addend + (next_offset - operand_offset);
 
-    address reloc_target = target + addend + (next_instrction - at_address);
     RelocationHolder rspec = jeandle_section_word_Relocation::spec(reloc_target, CodeBuffer::SECT_CONSTS);
 
+    address at_address = __ code()->insts_begin() + operand_offset;
     __ code()->insts()->relocate(at_address, rspec, __ disp32_operand);
   } else {
     assert(reloc_section == CodeBuffer::SECT_CONSTS, "unexpected code section");
@@ -344,4 +334,13 @@ bool JeandleAssembler::is_external_call_reloc(LinkSymbol& target, LinkKind kind)
 
 bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
   return target.isDefined() && kind == LinkKind_x86_64::Delta32;
+}
+
+void JeandleAssembler::initialize_inst_boundary_table() {
+  assert(__ code()->insts_begin() != nullptr && __ code()->insts_size() > 0, "insts section not initialized");
+  assert(_inst_boundary_table == nullptr, "inst boundary table already initialized");
+
+  _inst_boundary_table = new JeandleBoundaryTable(__ code()->insts_begin(),
+                                                  __ code()->insts_size(),
+                                                  llvm::Triple(llvm::sys::getProcessTriple()));
 }

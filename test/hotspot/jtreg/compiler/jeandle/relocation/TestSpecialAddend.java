@@ -1,5 +1,4 @@
 /*
- * Copyright (c) 2022, Red Hat, Inc. All rights reserved.
  * Copyright (c) 2026, the Jeandle-JDK Authors. All Rights Reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
@@ -24,44 +23,26 @@
 
 /*
  * @test
- * @bug 8269820
  * @requires os.arch=="amd64" | os.arch=="x86_64"
- * @summary C2 PhaseIdealLoop::do_unroll get wrong opaque node
+ * @summary Correcting the gap in relocation target with special addend.
+ *  issue: https://github.com/jeandle/jeandle-jdk/issues/326
  *
- * @run main/othervm -Xbatch -XX:-TieredCompilation -XX:+UseJeandleCompiler TestCanonicalLoopEntryOpaqueOrder
+ * @run main/othervm -Xbatch -Xcomp -XX:-TieredCompilation -XX:+UseJeandleCompiler compiler.jeandle.relocation.TestSpecialAddend
  *
  */
 
 /*
  * The method log1p in this case, after being compiled by jeandle on X86_64
- * architecture, will generate a cmpeqsd instruction, which will trigger a
- * bug in jeandle reloc.
+ * architecture, will generate a cmpeqsd instruction, which produce a special
+ * addend in relocation info, and it will trigger a bug in jeandle reloc.
  */
 
-public class TestCanonicalLoopEntryOpaqueOrder {
-    static void test() {
-        int ina8[] = new int[1478];
-        int in2 = 136;
-        long lo3 = 0L;
-        try {
-            for (int i = 0; i < 34; i++) {
-                Math.log1p(1);
-            }
-        } catch (Exception e) {
-            in2 = 1;
-        }
+package compiler.jeandle.relocation;
 
-        for (int i = 0; i < in2; i++) {
-            if (in2 > 10) {  // split if and create wrong opaque order
-                for (int j = 0; j < in2; j++) {
-                    lo3 -= 1L;
-                }
-            }
-        }
-    }
+public class TestSpecialAddend {
     public static void main(String[] args) {
         for (int i = 0; i < 10000; i++) {
-            test();
+                Math.log1p((double)i);
         }
     }
 }

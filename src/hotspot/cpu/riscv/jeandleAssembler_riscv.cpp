@@ -93,3 +93,8 @@ bool JeandleAssembler::is_external_call_reloc(LinkSymbol& target, LinkKind kind)
 bool JeandleAssembler::is_const_reloc(LinkSymbol& target, LinkKind kind) {
   Unimplemented();
 }
+
+void JeandleAssembler::initialize_inst_boundary_table() {
+  assert(_inst_boundary_table == nullptr, "dont't need boundary table");
+  // Do nothing on fixed-length instruction architecture.
+}
