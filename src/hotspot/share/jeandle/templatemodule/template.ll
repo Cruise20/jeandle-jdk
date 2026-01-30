@@ -29,6 +29,9 @@
 ; We use a null personality function for exception handlers.
 @jeandle.personality = global ptr null
 
+; Debug mode
+@DEBUG_MODE = external global i1
+
 ; Byte offsets of Array<Klass*> structure fields.
 @KlassArray.base_offset_in_bytes = external global i32
 @KlassArray.length_offset_in_bytes = external global i32
@@ -45,6 +48,29 @@
 
 ; Byte offsets for oopDesc structure fields.
 @oopDesc.klass_offset_in_bytes = external global i32
+@oopDesc.mark_offset_in_bytes = external global i32
+
+; Byte offsets for JavaThread structure fields.
+@JavaThread.held_monitor_count_offset = external global i32
+@JavaThread.lock_stack_top_cmp_value = external global i32
+@JavaThread.lock_stack_top_offset = external global i32
+
+; Byte offsets for ObjectMonitor structure fields.
+@ObjectMonitor.EntryList_offset_no_monitor_value = external global i32
+@ObjectMonitor.cxq_offset_no_monitor_value = external global i32
+@ObjectMonitor.owner_offset_no_monitor_value = external global i32
+@ObjectMonitor.recursions_offset_no_monitor_value = external global i32
+@ObjectMonitor.succ_offset_no_monitor_value = external global i32
+
+; Staic constants in markWord
+@markWord.clear_lock_mask = external global i64
+@markWord.monitor_value = external global i64
+@markWord.unlocked_value = external global i64
+@markWord.unused_mark_value = external global i64
+
+; Global definitions
+@oopSize = external global i32
+@check_recursive_mask_value = external global i64
 
 ; Keep use to lately-used java operations, until it is lowered.
 @llvm.used = appending addrspace(1) global [1 x ptr] [ptr @jeandle.card_table_barrier], section "llvm.metadata"
@@ -293,3 +319,360 @@ normal_lrem:
   %result = srem i64 %dividend, %divisor
   ret i64 %result
 }
+
+; Check the lock if is inflated
+define hotspotcc i1 @jeandle.check_inflated(i64 %mark_word) "lower-phase"="0" {
+entry:
+  %markWord_monitor_value = load i64, ptr @markWord.monitor_value
+  %masked_value = and i64 %mark_word, %markWord_monitor_value
+  %is_inflated = icmp ne i64 %masked_value, 0
+  ret i1 %is_inflated
+}
+
+; Try to acquire the monitor lock when the lock is inflated
+define hotspotcc i1 @jeandle.try_acquire_monitor_lock(i64 %mark_word, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %monitor_ptr = inttoptr i64 %mark_word to ptr
+  %owner_offset_no_monitor_value = load i32, ptr @ObjectMonitor.owner_offset_no_monitor_value
+  %owner_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %owner_offset_no_monitor_value
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %current_thread_as_int = ptrtoint ptr %current_thread to i64
+  %monitor_cas = cmpxchg ptr %owner_addr, i64 0, i64 %current_thread_as_int acq_rel monotonic, align 8
+  %destory_lock_record_addr = getelementptr inbounds i8, ptr %lock, i32 0
+  %unused_mark_value = load i64, ptr @markWord.unused_mark_value
+  store atomic i64 %unused_mark_value, ptr %destory_lock_record_addr unordered, align 8
+  %monitor_acquied = extractvalue { i64, i1 } %monitor_cas, 1
+  br i1 %monitor_acquied, label %return_true, label %check_recursive_monitor
+
+check_recursive_monitor:
+  %monitor_owner = extractvalue { i64, i1 } %monitor_cas, 0
+  %is_recursive_monitor_lock = icmp eq i64 %monitor_owner, %current_thread_as_int
+  br i1 %is_recursive_monitor_lock, label %increase_recursions, label %return_false
+
+increase_recursions:
+  %recursions_offset_no_monitor_value = load i32, ptr @ObjectMonitor.recursions_offset_no_monitor_value
+  %recursions_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %recursions_offset_no_monitor_value
+  %recursions = load atomic i64, ptr %recursions_addr unordered, align 8
+  %new_recursions = add i64 %recursions, 1
+  store atomic i64 %new_recursions, ptr %recursions_addr unordered, align 8
+  br label %return_true
+
+return_true:
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Try to release the monitor lock when the lock is inflated
+define hotspotcc i1 @jeandle.try_release_monitor_lock(i64 %mark_word) "lower-phase"="0" {
+entry:
+  %monitor_ptr = inttoptr i64 %mark_word to ptr
+  %recursions_offset_no_monitor_value = load i32, ptr @ObjectMonitor.recursions_offset_no_monitor_value
+  %recursions_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %recursions_offset_no_monitor_value
+  %recursions = load atomic i64, ptr %recursions_addr unordered, align 8
+  %is_recursive_monitor_unlock = icmp ne i64 %recursions, 0
+  br i1 %is_recursive_monitor_unlock, label %decrease_recursions, label %check_for_waiters
+
+decrease_recursions:
+  %new_recursions = sub i64 %recursions, 1
+  store atomic i64 %new_recursions, ptr %recursions_addr unordered, align 8
+  br label %return_true
+
+check_for_waiters:
+  %cxq_offset_no_monitor_value = load i32, ptr @ObjectMonitor.cxq_offset_no_monitor_value
+  %cxq_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %cxq_offset_no_monitor_value
+  %cxq = load atomic i64, ptr %cxq_addr unordered, align 8
+  %EntryList_offset_no_monitor_value = load i32, ptr @ObjectMonitor.EntryList_offset_no_monitor_value
+  %EntryList_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %EntryList_offset_no_monitor_value
+  %EntryList = load atomic i64, ptr %EntryList_addr unordered, align 8
+  %is_cxq_null = icmp eq i64 %cxq, 0
+  %is_EntryList_null = icmp eq i64 %EntryList, 0
+  %has_no_waiters = and i1 %is_cxq_null, %is_EntryList_null
+  %owner_offset_no_monitor_value = load i32, ptr @ObjectMonitor.owner_offset_no_monitor_value
+  %owner_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %owner_offset_no_monitor_value
+  br i1 %has_no_waiters, label %clear_monitor_owner, label %check_candidate_thread
+
+check_candidate_thread:
+  %succ_offset_no_monitor_value = load i32, ptr @ObjectMonitor.succ_offset_no_monitor_value
+  %succ_addr = getelementptr inbounds i8, ptr %monitor_ptr, i32 %succ_offset_no_monitor_value
+  %succ = load atomic i64, ptr %succ_addr unordered, align 8
+  %has_no_candidate_threads = icmp eq i64 %succ, 0
+  br i1 %has_no_candidate_threads, label %return_false, label %try_release_monitor
+
+clear_monitor_owner:
+  store atomic volatile i64 0, ptr %owner_addr seq_cst, align 8
+  br label %return_true
+
+try_release_monitor:
+  store atomic volatile i64 0, ptr %owner_addr seq_cst, align 8
+  fence seq_cst
+  %new_succ = load atomic i64, ptr %succ_addr unordered, align 8
+  %is_candidate_thread_null = icmp eq i64 %new_succ, 0
+  br i1 %is_candidate_thread_null, label %reacquire_monitor, label %return_true
+
+reacquire_monitor:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %current_thread_as_int = ptrtoint ptr %current_thread to i64
+  %monitor_cas = cmpxchg ptr %owner_addr, i64 0, i64 %current_thread_as_int acq_rel monotonic, align 8
+  %monitor_reacquied = extractvalue { i64, i1 } %monitor_cas, 1
+  br i1 %monitor_reacquied, label %return_false, label %return_true
+
+return_true:
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Increment held_monitor_count in JavaThread
+define hotspotcc void @jeandle.increment_lock_count() "lower-phase"="0" {
+entry:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %held_monitor_count_offset = load i32, ptr @JavaThread.held_monitor_count_offset
+  %held_monitor_count_addr = getelementptr inbounds i8, ptr %current_thread, i32 %held_monitor_count_offset
+  %held_monitor_count = load atomic i64, ptr %held_monitor_count_addr unordered, align 8
+  %new_held_monitor_count = add i64 %held_monitor_count, 1
+  store atomic i64 %new_held_monitor_count, ptr %held_monitor_count_addr unordered, align 8
+  ret void
+}
+
+; Decrement held_monitor_count in JavaThread
+define hotspotcc void @jeandle.decrement_lock_count() "lower-phase"="0" {
+entry:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %held_monitor_count_offset = load i32, ptr @JavaThread.held_monitor_count_offset
+  %held_monitor_count_addr = getelementptr inbounds i8, ptr %current_thread, i32 %held_monitor_count_offset
+  %held_monitor_count = load atomic i64, ptr %held_monitor_count_addr unordered, align 8
+  %new_held_monitor_count = sub i64 %held_monitor_count, 1
+  store atomic i64 %new_held_monitor_count, ptr %held_monitor_count_addr unordered, align 8
+  ret void
+}
+
+; clear the lock stack top oop in debug mode
+define hotspotcc void @jeandle.clear_oop_in_lock_stack_top(i32 %lock_stack_top) "lower-phase"="0" {
+entry:
+  %is_debug = load i1, ptr @DEBUG_MODE
+  br i1 %is_debug, label %debug_path, label %release_path
+
+debug_path:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %clear_oop_addr = getelementptr inbounds i8, ptr %current_thread, i32 %lock_stack_top
+  store atomic i64 0, ptr %clear_oop_addr unordered, align 8
+  ret void
+
+release_path:
+  ret void
+}
+
+; Fast path implementation of monitorenter when LockingMode == 0
+define hotspotcc i1 @jeandle.monitorenter_with_monitor_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %is_inflated = call hotspotcc i1 @jeandle.check_inflated(i64 %mark_word)
+  br i1 %is_inflated, label %monitor_lock_fast_path, label %return_false
+
+monitor_lock_fast_path:
+  %acquired = call hotspotcc i1 @jeandle.try_acquire_monitor_lock(i64 %mark_word, ptr addrspace(0) %lock)
+  br i1 %acquired, label %increment_lock_count_and_return_true, label %return_false
+
+increment_lock_count_and_return_true:
+  call hotspotcc void @jeandle.increment_lock_count()
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Fast path implementation of monitorenter when LockingMode == 1
+define hotspotcc i1 @jeandle.monitorenter_with_thin_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %is_inflated = call hotspotcc i1 @jeandle.check_inflated(i64 %mark_word)
+  br i1 %is_inflated, label %monitor_lock_fast_path, label %thin_lock_path
+
+thin_lock_path:
+  %markWord_unlocked_value = load i64, ptr @markWord.unlocked_value
+  %unlocked_mark_word = or i64 %mark_word, %markWord_unlocked_value
+  store atomic i64 %unlocked_mark_word, ptr %lock unordered, align 8
+  %lock_as_int = ptrtoint ptr %lock to i64
+  %thin_lock_cas = cmpxchg ptr addrspace(1) %mark_word_addr, i64 %unlocked_mark_word, i64 %lock_as_int acq_rel monotonic, align 8
+  %thin_lock_acquired = extractvalue { i64, i1 } %thin_lock_cas, 1
+  br i1 %thin_lock_acquired, label %increment_lock_count_and_return_true, label %check_recursive_thin_lock
+
+check_recursive_thin_lock:
+  %stack_top = call i64 @llvm.read_register.i64(metadata !{!"rsp"})
+  %thin_lock_owner = extractvalue { i64, i1 } %thin_lock_cas, 0
+  %offset_from_sp = sub i64 %thin_lock_owner, %stack_top
+  %check_recursive_mask_value = load i64, ptr @check_recursive_mask_value
+  %recursive_masked_value = and i64 %offset_from_sp, %check_recursive_mask_value
+  store atomic i64 %recursive_masked_value, ptr %lock unordered, align 8
+  %is_recursive_thin_lock = icmp eq i64 %recursive_masked_value, 0
+  br i1 %is_recursive_thin_lock, label %increment_lock_count_and_return_true, label %return_false
+
+monitor_lock_fast_path:
+  %acquired = call hotspotcc i1 @jeandle.try_acquire_monitor_lock(i64 %mark_word, ptr addrspace(0) %lock)
+  br i1 %acquired, label %increment_lock_count_and_return_true, label %return_false
+
+increment_lock_count_and_return_true:
+  call hotspotcc void @jeandle.increment_lock_count()
+  ret i1 true
+
+return_true:
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Fast path implementation of monitorenter when LockingMode == 2
+define hotspotcc i1 @jeandle.monitorenter_with_lightweight_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %is_inflated = call hotspotcc i1 @jeandle.check_inflated(i64 %mark_word)
+  br i1 %is_inflated, label %monitor_lock_fast_path, label %lightweight_lock_path
+
+lightweight_lock_path:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %lock_stack_top_offset = load i32, ptr @JavaThread.lock_stack_top_offset
+  %lock_stack_top_addr = getelementptr inbounds i8, ptr %current_thread, i32 %lock_stack_top_offset
+  %lock_stack_top = load atomic i32, ptr %lock_stack_top_addr unordered, align 4
+  %lock_stack_top_cmp_value = load i32, ptr @JavaThread.lock_stack_top_cmp_value
+  %is_lock_stack_full = icmp sgt i32 %lock_stack_top, %lock_stack_top_cmp_value
+  br i1 %is_lock_stack_full, label %return_false, label %lightweight_lock
+
+lightweight_lock:
+  %markWord_clear_lock_mask = load i64, ptr @markWord.clear_lock_mask
+  %mark_word_clear_lock = and i64 %mark_word, %markWord_clear_lock_mask
+  %markWord_unlocked_value = load i64, ptr @markWord.unlocked_value
+  %unlocked_mark_word = or i64 %mark_word_clear_lock, %markWord_unlocked_value
+  %lightweight_lock_cas = cmpxchg ptr addrspace(1) %mark_word_addr, i64 %unlocked_mark_word, i64 %mark_word_clear_lock acq_rel monotonic, align 8
+  %lightweight_lock_acquired = extractvalue { i64, i1 } %lightweight_lock_cas, 1
+  br i1 %lightweight_lock_acquired, label %push_oop_to_lock_stack, label %return_false
+
+push_oop_to_lock_stack:
+  %new_lock_stack_top = load atomic i32, ptr %lock_stack_top_addr unordered, align 4
+  %new_lock_stack_top_zext = zext i32 %new_lock_stack_top to i64
+  %store_oop_addr = getelementptr inbounds i8, ptr %current_thread, i64 %new_lock_stack_top_zext
+  store atomic ptr addrspace(1) %obj, ptr %store_oop_addr unordered, align 8
+  %oopSize = load i32, ptr @oopSize
+  %lock_stack_top_increased = add i32 %new_lock_stack_top, %oopSize
+  store atomic i32 %lock_stack_top_increased, ptr %lock_stack_top_addr unordered, align 4
+  br label %increment_lock_count_and_return_true
+
+monitor_lock_fast_path:
+  %acquired = call hotspotcc i1 @jeandle.try_acquire_monitor_lock(i64 %mark_word, ptr addrspace(0) %lock)
+  br i1 %acquired, label %increment_lock_count_and_return_true, label %return_false
+
+increment_lock_count_and_return_true:
+  call hotspotcc void @jeandle.increment_lock_count()
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Fast path implementation of monitorexit when LockingMode == 0
+define hotspotcc i1 @jeandle.monitorexit_with_monitor_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %released = call hotspotcc i1 @jeandle.try_release_monitor_lock(i64 %mark_word)
+  br i1 %released, label %decrement_lock_count_and_return_true, label %return_false
+
+decrement_lock_count_and_return_true:
+  call hotspotcc void @jeandle.decrement_lock_count()
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Fast path implementation of monitorexit when LockingMode == 1
+define hotspotcc i1 @jeandle.monitorexit_with_thin_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %lock_record_addr = getelementptr inbounds i8, ptr %lock, i32 0
+  %lock_record = load atomic i64, ptr %lock_record_addr unordered, align 8
+  %is_recursive_stack_unlock = icmp eq i64 %lock_record, 0
+  br i1 %is_recursive_stack_unlock, label %decrement_lock_count_and_return_true, label %check_if_lock_is_inflated
+
+check_if_lock_is_inflated:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %is_inflated = call hotspotcc i1 @jeandle.check_inflated(i64 %mark_word)
+  br i1 %is_inflated, label %monitor_unlock_fast_path, label %thin_unlock_path
+
+thin_unlock_path:
+  %original_mark_word = load atomic i64, ptr %lock_record_addr unordered, align 8
+  %lock_as_int = ptrtoint ptr %lock to i64
+  %thin_lock_cas = cmpxchg ptr addrspace(1) %mark_word_addr, i64 %lock_as_int, i64 %original_mark_word acq_rel monotonic, align 8
+  %thin_lock_released = extractvalue { i64, i1 } %thin_lock_cas, 1
+  br i1 %thin_lock_released, label %decrement_lock_count_and_return_true, label %return_false
+
+monitor_unlock_fast_path:
+  %released = call hotspotcc i1 @jeandle.try_release_monitor_lock(i64 %mark_word)
+  br i1 %released, label %decrement_lock_count_and_return_true, label %return_false
+
+decrement_lock_count_and_return_true:
+  call hotspotcc void @jeandle.decrement_lock_count()
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+
+; Fast path implementation of monitorexit when LockingMode == 2
+define hotspotcc i1 @jeandle.monitorexit_with_lightweight_lock(ptr addrspace(1) nocapture %obj, ptr addrspace(0) nocapture %lock) "lower-phase"="0" {
+entry:
+  %mark_offset = load i32, ptr @oopDesc.mark_offset_in_bytes
+  %mark_word_addr = getelementptr inbounds i8, ptr addrspace(1) %obj, i32 %mark_offset
+  %mark_word = load atomic i64, ptr addrspace(1) %mark_word_addr unordered, align 8
+  %is_inflated = call hotspotcc i1 @jeandle.check_inflated(i64 %mark_word)
+  br i1 %is_inflated, label %check_anonymous_owner, label %lightweight_unlock_path
+
+lightweight_unlock_path:
+  %markWord_unlocked_value = load i64, ptr @markWord.unlocked_value
+  %unlocked_mark_word = or i64 %mark_word, %markWord_unlocked_value
+  %lightweight_lock_cas = cmpxchg ptr addrspace(1) %mark_word_addr, i64 %mark_word, i64 %unlocked_mark_word acq_rel monotonic, align 8
+  %lightweight_lock_released = extractvalue { i64, i1 } %lightweight_lock_cas, 1
+  br i1 %lightweight_lock_released, label %pop_oop_from_lock_stack, label %return_false
+
+pop_oop_from_lock_stack:
+  %current_thread = call hotspotcc ptr @jeandle.current_thread()
+  %lock_stack_top_offset = load i32, ptr @JavaThread.lock_stack_top_offset
+  %lock_stack_top_addr = getelementptr inbounds i8, ptr %current_thread, i32 %lock_stack_top_offset
+  %lock_stack_top = load atomic i32, ptr %lock_stack_top_addr unordered, align 4
+  %new_lock_stack_top = sub i32 %lock_stack_top, 8
+  store atomic i32 %new_lock_stack_top, ptr %lock_stack_top_addr unordered, align 4
+  call hotspotcc void @jeandle.clear_oop_in_lock_stack_top(i32 %new_lock_stack_top)
+  br label %decrement_lock_count_and_return_true
+
+check_anonymous_owner:
+  %monitor_ptr = inttoptr i64 %mark_word to ptr
+  %owner_offset_no_monitor_value1 = load i32, ptr @ObjectMonitor.owner_offset_no_monitor_value
+  %owner_addr1 = getelementptr inbounds i8, ptr %monitor_ptr, i32 %owner_offset_no_monitor_value1
+  %owner1 = load atomic i64, ptr %owner_addr1 unordered, align 8
+  %masked_owner = and i64 %owner1, 1
+  %is_anonymous_owner = icmp ne i64 %masked_owner, 0
+  br i1 %is_anonymous_owner, label %return_false, label %monitor_unlock_fast_path
+
+monitor_unlock_fast_path:
+  %released = call hotspotcc i1 @jeandle.try_release_monitor_lock(i64 %mark_word)
+  br i1 %released, label %decrement_lock_count_and_return_true, label %return_false
+
+decrement_lock_count_and_return_true:
+  call hotspotcc void @jeandle.decrement_lock_count()
+  ret i1 true
+
+return_false:
+  ret i1 false
+}
+

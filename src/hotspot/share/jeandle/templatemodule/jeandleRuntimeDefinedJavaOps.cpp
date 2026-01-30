@@ -35,6 +35,7 @@
 #include "oops/klass.hpp"
 #include "oops/objArrayKlass.hpp"
 #include "runtime/javaThread.hpp"
+#include "runtime/objectMonitor.hpp"
 #include "runtime/safepointMechanism.hpp"
 
 //                  name, lower_phase, return_type, arg_types
@@ -224,7 +225,15 @@ void RuntimeDefinedJavaOps::define_global_variables(llvm::Module& template_modul
     global_var->setLinkage(llvm::GlobalValue::PrivateLinkage);
   };
 
+  llvm::Type* int1_type = llvm::Type::getInt1Ty(context);
   llvm::Type* int32_type = llvm::Type::getInt32Ty(context);
+  llvm::Type* int64_type = llvm::Type::getInt64Ty(context);
+
+#ifdef ASSERT
+  define_global("DEBUG_MODE",                                       int1_type,  static_cast<uint64_t>(true));
+#else
+  define_global("DEBUG_MODE",                                       int1_type,  static_cast<uint64_t>(false));
+#endif
 
   define_global("KlassArray.base_offset_in_bytes",     int32_type, static_cast<uint64_t>(Array<Klass*>::base_offset_in_bytes()));
   define_global("KlassArray.length_offset_in_bytes",   int32_type, static_cast<uint64_t>(Array<Klass*>::length_offset_in_bytes()));
@@ -235,4 +244,22 @@ void RuntimeDefinedJavaOps::define_global_variables(llvm::Module& template_modul
   define_global("Klass.super_check_offset_offset",     int32_type, static_cast<uint64_t>(Klass::super_check_offset_offset()));
   define_global("ObjArrayKlass.element_klass_offset",  int32_type, static_cast<uint64_t>(ObjArrayKlass::element_klass_offset()));
   define_global("oopDesc.klass_offset_in_bytes",       int32_type, static_cast<uint64_t>(oopDesc::klass_offset_in_bytes()));
+  define_global("oopDesc.mark_offset_in_bytes",                     int32_type, static_cast<uint64_t>(oopDesc::mark_offset_in_bytes()));
+  define_global("JavaThread.held_monitor_count_offset",             int32_type, static_cast<uint64_t>(JavaThread::held_monitor_count_offset()));
+  define_global("JavaThread.lock_stack_top_cmp_value",              int32_type, static_cast<uint64_t>(LockStack::end_offset() - 1));
+  define_global("JavaThread.lock_stack_top_offset",                 int32_type, static_cast<uint64_t>(JavaThread::lock_stack_top_offset()));
+  define_global("ObjectMonitor.EntryList_offset_no_monitor_value",  int32_type, static_cast<uint64_t>(OM_OFFSET_NO_MONITOR_VALUE_TAG(EntryList)));
+  define_global("ObjectMonitor.cxq_offset_no_monitor_value",        int32_type, static_cast<uint64_t>(OM_OFFSET_NO_MONITOR_VALUE_TAG(cxq)));
+  define_global("ObjectMonitor.owner_offset_no_monitor_value",      int32_type, static_cast<uint64_t>(OM_OFFSET_NO_MONITOR_VALUE_TAG(owner)));
+  define_global("ObjectMonitor.recursions_offset_no_monitor_value", int32_type, static_cast<uint64_t>(OM_OFFSET_NO_MONITOR_VALUE_TAG(recursions)));
+  define_global("ObjectMonitor.succ_offset_no_monitor_value",       int32_type, static_cast<uint64_t>(OM_OFFSET_NO_MONITOR_VALUE_TAG(succ)));
+
+  define_global("markWord.clear_lock_mask",                         int64_type, static_cast<uint64_t>(~(int32_t)markWord::lock_mask_in_place));
+  define_global("markWord.monitor_value",                           int64_type, static_cast<uint64_t>(markWord::monitor_value));
+  define_global("markWord.unlocked_value",                          int64_type, static_cast<uint64_t>(markWord::unlocked_value));
+  define_global("markWord.unused_mark_value",                       int64_type, static_cast<uint64_t>(markWord::unused_mark().value()));
+  
+  define_global("oopSize",                                          int32_type, static_cast<uint64_t>(oopSize));
+
+  define_global("check_recursive_mask_value",                       int64_type, static_cast<uint64_t>(7 - (int)os::vm_page_size()));
 }
