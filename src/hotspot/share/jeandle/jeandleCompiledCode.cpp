@@ -171,6 +171,8 @@ void JeandleCompiledCode::finalize() {
 
   _prolog_length = masm->offset();
 
+  _offsets.set_value(CodeOffsets::Frame_Complete, _prolog_length);
+
   assembler.emit_insts(((address) _obj->getBufferStart()) + offset, code_size);
 
   resolve_reloc_info(assembler);
